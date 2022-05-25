@@ -18,7 +18,7 @@ class Locate(Node):
     def __init__(self):
         super().__init__("rs_locate_object")
         self.create_subscription(Image, "/camera/aligned_depth_to_color/image_raw", self.depth_img_cb, 10)
-        self.create_subscription(BoundingBoxes, "/yolox/bounding_boxes", self.run, 1)
+        self.create_subscription(BoundingBoxes, "/bounding_boxes", self.run, 1)
         self.cv_bridge = CvBridge()
         self.depth_frame = None
 
@@ -40,7 +40,7 @@ class Locate(Node):
         self._intrinsics.coeffs = D
 
         #
-        self.global_frame = 'rs_cam'
+        self.global_frame = 'camera_link'
         self.marker_idx = 0
         self.tfb_ = TransformBroadcaster(self)
 
@@ -68,7 +68,7 @@ class Locate(Node):
         tfs = TransformStamped()
         
         tfs.header.stamp = self.get_clock().now().to_msg()
-        tfs.header.frame_id= "rs_yolox"
+        tfs.header.frame_id= self.global_frame
         tfs._child_frame_id = frame
         tfs.transform.translation.x = float(pose[0]) / 1000
         tfs.transform.translation.y = float(pose[1]) / 1000
@@ -83,12 +83,12 @@ class Locate(Node):
 
 def main():
     rclpy.init()
-    img_pub = Locate()
+    rs_locate_object = Locate()
     try:
-        rclpy.spin(img_pub)
+        rclpy.spin(rs_locate_object)
     except KeyboardInterrupt:
         pass
-    img_pub.destroy_node()
+    rs_locate_object.destroy_node()
     rclpy.shutdown()
 
 if __name__ == '__main__':
