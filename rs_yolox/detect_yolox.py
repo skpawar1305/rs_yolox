@@ -24,15 +24,15 @@ from ament_index_python import get_package_share_directory
 utils_dir = os.path.join(get_package_share_directory('rs_yolox'), 'utils')
 sys.path.append(utils_dir)
 from utils import yolox_py
+from locate_utils import Locate
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 
 from std_msgs.msg import Header
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
-
-from rclpy.qos import qos_profile_sensor_data
 
 from bboxes_ex_msgs.msg import BoundingBoxes
 from bboxes_ex_msgs.msg import BoundingBox
@@ -113,7 +113,7 @@ class Predictor(object):
         scores = output[:, 4] * output[:, 5]
 
         vis_res = vis(img, bboxes, scores, cls, cls_conf, self.cls_names)
-        
+
         return vis_res, bboxes, scores, cls, self.cls_names
 
 class yolox_ros(yolox_py):
@@ -123,15 +123,20 @@ class yolox_ros(yolox_py):
         super().__init__('yolox_ros', load_params=False)
 
         self.setting_yolox_exp()
-        
+
         self.bridge = CvBridge()
-        
+
         self.pub = self.create_publisher(BoundingBoxes,"bounding_boxes", 10)
-        
+
         if (self.sensor_qos_mode):
+            self.create_subscription(Image, "aligned_depth_raw", self.depthimage_callback, qos_profile_sensor_data)
             self.sub = self.create_subscription(Image,"image_raw",self.imageflow_callback, qos_profile_sensor_data)
         else:
+            self.create_subscription(Image, "aligned_depth_raw", self.depthimage_callback, 10)
             self.sub = self.create_subscription(Image,"image_raw",self.imageflow_callback, 10)
+        self.depth_image = None
+
+        self.rs_locate = Locate(self.bridge)
 
     def setting_yolox_exp(self) -> None:
 
@@ -153,14 +158,14 @@ class yolox_ros(yolox_py):
         self.declare_parameter('threshold', 0.65)
         # --tsize -> resize
         self.declare_parameter('resize', 640)
-        
+
         self.declare_parameter('sensor_qos_mode', False)
 
         # =============================================================
         self.imshow_isshow = self.get_parameter('imshow_isshow').value
 
         exp_py = self.get_parameter('yolox_exp_py').value
-        
+
         fuse = self.get_parameter('fuse').value
         trt = self.get_parameter('trt').value
         fp16 = self.get_parameter('fp16').value
@@ -170,7 +175,7 @@ class yolox_ros(yolox_py):
         conf = self.get_parameter('conf').value
         legacy = self.get_parameter('legacy').value
         threshold = self.get_parameter('threshold').value
-        
+
         input_shape_w = self.get_parameter('resize').value
         input_shape_h = input_shape_w
 
@@ -196,7 +201,7 @@ class yolox_ros(yolox_py):
         if device == "gpu":
             model.cuda()
             if fp16:
-                model.half() 
+                model.half()
         # torch.cuda.set_device()
         # model.cuda()
         model.eval()
@@ -231,17 +236,27 @@ class yolox_ros(yolox_py):
         else:
             trt_file = None
             decoder = None
-        
+
         self.predictor = Predictor(model, exp, COCO_CLASSES, trt_file, decoder, device, fp16, legacy)
+
+    def depthimage_callback(self,msg:Image) -> None:
+        try:
+            self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="16UC1")
+        except Exception as e:
+            logger.error(e)
 
     def imageflow_callback(self,msg:Image) -> None:
         try:
             img_rgb = self.bridge.imgmsg_to_cv2(msg,"bgr8")
+            img_depth = self.depth_image
+
             outputs, img_info = self.predictor.inference(img_rgb)
 
             try:
                 result_img_rgb, bboxes, scores, cls, cls_names = self.predictor.visual(outputs[0], img_info)
                 bboxes_msg = self.yolox2bboxes_msgs(bboxes, scores, cls, cls_names, msg.header, img_rgb)
+
+                self.rs_locate.locate(img_depth, bboxes, cls, cls_names)
 
                 self.pub.publish(bboxes_msg)
 
@@ -256,6 +271,7 @@ class yolox_ros(yolox_py):
         except Exception as e:
             logger.error(e)
 
+
 def main(args = None):
     rclpy.init(args=args)
     ros_class = yolox_ros()
@@ -267,6 +283,6 @@ def main(args = None):
     finally:
         ros_class.destroy_node()
         rclpy.shutdown()
-    
+
 if __name__ == "__main__":
     main()

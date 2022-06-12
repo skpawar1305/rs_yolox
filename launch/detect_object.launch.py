@@ -36,6 +36,7 @@ def generate_launch_description():
         ],
         remappings=[
             ('/image_raw', '/camera/color/image_raw'),
+            ('/aligned_depth_raw', '/camera/aligned_depth_to_color/image_raw'),
         ],
     )
 
