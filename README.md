@@ -8,17 +8,23 @@
 ## Installation
 In a ROS2 Workspace run
 ```
-git clone https://github.com/Ar-Ray-code/YOLOX-ROS --recursive
+git clone https://github.com/Ar-Ray-code/bbox_ex_msgs
 git clone https://github.com/IntelRealSense/realsense-ros -b ros2-beta
-git clone https://github.com/skpawar1305/rs_locate_object
+git clone https://github.com/skpawar1305/rs_yolox
 ```
 and build packages with colcon and source them.
 Install additional dependencies with
 ```
 pip install pyrealsense2
 ```
+Clone YOLOX.
+```
+git clone https://github.com/Megvii-BaseDetection/YOLOX
+```
+And include it to PYTHON Path. Check path using 'pwd' in terminal.
+e.g. export PYTHONPATH=${PYTHONPATH}:/home/skpawar1305/Desktop/YOLOX
 ## Launch
 Launch with
 ```
-ros2 launch rs_locate_object locate_object.launch.py rviz:=true
+ros2 launch rs_yolox detect_object.launch.py rviz:=true
 ```

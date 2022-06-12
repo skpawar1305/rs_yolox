@@ -2,7 +2,7 @@ import os
 from glob import glob
 from setuptools import setup
 
-package_name = 'rs_locate_object'
+package_name = 'rs_yolox'
 
 setup(
     name=package_name,
@@ -12,7 +12,10 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/resource', ['resource/default.rviz']),
+        (os.path.join('share', package_name, 'resource'), glob('resource/*')),
+        (os.path.join('share', package_name, 'weights'), glob('weights/*')),
+        (os.path.join('share', package_name, 'exps'), glob('exps/*')),
+        (os.path.join('share', package_name, 'utils'), glob('utils/*')),
         (os.path.join('share', package_name), glob('./launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
@@ -24,7 +27,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'locate_yolox = ' + package_name + '.locate_yolox:main'
+            'detect_yolox = ' + package_name + '.detect_yolox:main'
         ],
     },
 )
