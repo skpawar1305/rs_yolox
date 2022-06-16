@@ -27,7 +27,10 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'detect_yolox = ' + package_name + '.detect_yolox:main'
+            'detect_yolox = ' + package_name + '.detect_yolox:main',
+            'detect_yolox_onnx = ' + package_name + '.detect_yolox_onnx:main',
+            'detect_yolox_torch = ' + package_name + '.detect_yolox_torch:main',
+            'detect_yolox_openvino = ' + package_name + '.detect_yolox_openvino:main'
         ],
     },
 )
