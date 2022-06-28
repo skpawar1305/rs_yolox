@@ -10,6 +10,7 @@ In a ROS2 Workspace run
 git clone https://github.com/Ar-Ray-code/bbox_ex_msgs
 git clone https://github.com/IntelRealSense/realsense-ros -b ros2-beta
 git clone https://github.com/skpawar1305/rs_yolox
+git clone https://github.com/julienAhn/realsense_interface.git
 ```
 and build packages with colcon and source them.
 Install python dependencies with
