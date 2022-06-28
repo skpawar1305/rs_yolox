@@ -1,0 +1,7 @@
+= Documentation: rs_yolox 
+:navtitle: rs_yolox
+
+This repository contains mutliple nodes, which helps to detect the from yolox trained objects and to
+compute the coordinates of those objects.
+
+...
