@@ -1,0 +1,5 @@
+name: rs_yolox
+title: rs_yolox documentation
+version: master
+nav:
+  - modules/ROOT/nav.adoc

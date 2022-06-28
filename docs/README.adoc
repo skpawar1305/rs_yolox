@@ -1,0 +1,94 @@
+= Antora Documentation Boilerplate
+:toc:
+
+== Getting started
+To use the boilerplate clone this repository into your own repository and remove then the .git/ directory.
+
+
+[source, bash]
+----
+# In your own repository 
+git clone https://git.fh-aachen.de/SpotRescueTeam/documentation/antora-docs-boilerplate.git docs/ && rm -rf ./docs/.git/
+----
+
+[listing]
+----
+📒 repository [docs folder]
+  📒 .git     [Delete this directory]
+  📂 modules
+    📂 named-module
+      📁 attachments    
+      📁 examples       
+      📁 images
+      📁 pages          
+        📄 index.adoc
+      📁 partials
+      📄 nav.adoc       [File for Navigation]
+  📄 antora.yml         [Change name of your documentation component]
+  📄 README.adoc        [Delete this file]
+----
+
+Inside antora.yml file you can change the name and the title of your documentation. The name is used for referencing and the title will be displayed in the browser tab.
+
+[source, yml]
+----
+name: <component name>
+title: <title>
+version: <your git branch name>
+nav:
+  - modules/ROOT/nav.adoc
+----
+
+== VSCode AsciiDoc Extension
+To preview your written documentation you can use VSCode with the asciidoctor extension. Navigate inside your extensions tab in VSCode and search for asciidoc. Click on install to get support for asciidoc files.
+
+https://marketplace.visualstudio.com/items?itemName=asciidoctor.asciidoctor-vscode[About AsciiDoc Extension]
+
+image::https://github.com/asciidoctor/asciidoctor-vscode/raw/HEAD/images/simple.gif[alt=asciidoctor vscode]
+
+== How to preview antora build?
+It is not always clear what the final documentation will look like. To see the written documentation in Antora, you should first create a playbook locally.
+
+[source, yml]
+----
+# ./antora-playbook.yml
+site:
+  title: Preview 
+  start_page: <component>::<page.adoc> # select component from antora.yml and page from your pages dir 
+content:
+  sources:
+  - url: .
+    branches: HEAD
+ui:
+  bundle:
+    url: https://gitlab.com/antora/antora-ui-default/-/jobs/artifacts/HEAD/raw/build/ui-bundle.zip?job=bundle-stable
+    snapshot: true
+----
+
+=== NodeJS
+
+Install https://nodejs.org/en/download/current/[NodeJS version 16 or above] and download the dependencies for Antora.
+
+[source, bash]
+----
+npm i -g @antora/cli@3.0 @antora/site-generator@3.0
+----
+
+Then generate the documentation with:
+
+[source,bash]
+----
+antora antora-preview.yml
+----
+
+=== Docker
+If you have Docker installed on your system, use the command below to build the documentation.
+
+[source,bash]
+----
+docker run -u $(id -u) -v $PWD:/antora:Z --rm -t antora/antora antora-playbook.yml
+----
+
+== Useful Links
+- https://docs.asciidoctor.org/asciidoc/latest/syntax-quick-reference/[AsciiDoc - Quick Refernce ]
+- https://docs.antora.org/antora/latest/[Antora Documentation]
