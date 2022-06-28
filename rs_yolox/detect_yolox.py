@@ -256,7 +256,8 @@ class yolox_ros(yolox_py):
                 result_img_rgb, bboxes, scores, cls, cls_names = self.predictor.visual(outputs[0], img_info)
                 bboxes_msg = self.yolox2bboxes_msgs(bboxes, scores, cls, cls_names, msg.header, img_rgb)
 
-                self.rs_locate.locate(img_depth, bboxes, cls, cls_names,'median')
+                depth_estimation_method = "center_point_depth_mean"
+                self.rs_locate.locate(img_depth, bboxes, cls, cls_names, depth_estimation_method)
 
                 self.pub.publish(bboxes_msg)
 
