@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from loguru import logger
 from rclpy.node import Node
 from geometry_msgs.msg import TransformStamped
 
@@ -7,7 +8,12 @@ from tf2_ros.transform_broadcaster import TransformBroadcaster
 from scipy.spatial.transform import Rotation as R
 import pyrealsense2 as rs
 
+class ObjectsToDetect:
 
+  def __init__(self, name, max_length):
+    self.name = name
+    self.max_length = max_length
+    
 class Locate(Node):
     def __init__(self, cv_bridge):
         super().__init__('rs_locator')
@@ -34,7 +40,15 @@ class Locate(Node):
         self.global_frame = 'camera_link'
         self.tfb_ = TransformBroadcaster(self)
 
-    def locate(self, depth_frame, bboxes, cls, cls_names):
+    def locate(self, depth_frame, bboxes, cls, cls_names, depth_estimation_method):
+        
+        depth_estimation_methods = {'center_point_depth','mean','median','center_point_depth_mean','center_point_depth_median'}
+        if depth_estimation_method not in depth_estimation_methods:
+            raise ValueError("results: depth_estimation_method must be one of %r." % depth_estimation_methods)
+
+        # extract bbox value
+            # xmin, ymin -> left bottom corner
+            # xmax, ymax -> right upper corner
         for idx, bbox in enumerate(bboxes):
             if bbox[0] < 0:
                 bbox[0] = 0
@@ -49,20 +63,184 @@ class Locate(Node):
             xmax = int(bbox[2])
             ymax = int(bbox[3])
 
-            class_id = str(cls_names[int(cls[idx])])
-            frame = str(class_id) + '_' + str(idx)
+            class_name = str(cls_names[int(cls[idx])])    # name of detected object
+            frame = str(class_name) + '_' + str(idx)
             
-            point = [round((xmin + xmax)/2), round((ymin + ymax)/2)]
+            
+            distance = 0
 
-            # Show distance for a specific point
-            distance = depth_frame[point[1], point[0]]
-            coor = self.convert_depth_to_phys_coord_using_realsense(point[0], point[1], distance)
+            if (depth_estimation_method == "center_point_depth"):
+                center_point = [round((xmin + xmax)/2), round((ymin + ymax)/2)] # center point of bounding box
+                distance = depth_frame[center_point[1], center_point[0]]
+
+            elif (depth_estimation_method == "mean"):
+                bbox_depth_frame = depth_frame[ymin:ymax, xmin:xmax]
+                distance = self.mean_depth(bbox_depth_frame)
+
+            elif (depth_estimation_method == "median"):
+                bbox_depth_frame = depth_frame[ymin:ymax, xmin:xmax]
+                distance = self.median_depth(bbox_depth_frame)
+
+            elif (depth_estimation_method == "center_point_depth_mean"):
+                center_point = [round((xmin + xmax)/2), round((ymin + ymax)/2)] # center point of bounding box
+                
+                distance_center_point = depth_frame[center_point[1], center_point[0]]
+                max_length_of_object = self.getMaxLengthOfObject(class_name)
+
+                if distance_center_point != 0 and max_length_of_object != 0:
+                    distance = self.center_point_depth_mean(self, bbox_depth_frame,distance_center_point,max_length_of_object)
+                else:
+                    distance = distance_center_point
+            
+            elif (depth_estimation_method == "center_point_depth_median"):
+                center_point = [round((xmin + xmax)/2), round((ymin + ymax)/2)] # center point of bounding box
+                
+                distance_center_point = depth_frame[center_point[1], center_point[0]]
+                max_length_of_object = self.getMaxLengthOfObject(class_name)
+
+                if distance_center_point != 0 and max_length_of_object != 0:
+                    distance = self.center_point_depth_median(self, bbox_depth_frame,distance_center_point,max_length_of_object)
+                else:
+                    distance = distance_center_point            
+
+            coor = self.convert_depth_to_phys_coord_using_realsense(center_point[0], center_point[1], distance)
 
             self.tf(coor, frame)
 
+    def getMaxLengthOfObject(self,object_name):
+        
+        objects = self.getObjectsToDetect()
+        for object in objects:
+            if(object.name == object_name):
+                return object.max_length
+        return 0
+
+    def getObjectsToDetect():
+        vase = ObjectsToDetect("vase",150)
+        tv = ObjectsToDetect("tv",350)
+        chair = ObjectsToDetect("chair",1000)
+        
+        return [vase,tv,chair]
+    
+    def center_point_depth_mean(self, bbox_depth_frame, center_point_distance, max_length_of_object):
+
+            height = bbox_depth_frame.shape[0]
+            width = bbox_depth_frame.shape[1]
+
+            observed_pixels_amount = height*width
+            
+            sum = 0
+            
+            nearest_depth = center_point_distance - max_length_of_object
+            farest_depth = center_point_distance + max_length_of_object
+
+            try:
+                for i in range(height):
+                    for j in range(width):
+                        # ignore pixels with 0 as depth as it's incorrect data
+                        if(bbox_depth_frame[i,j] == 0):
+                            observed_pixels_amount-=1
+                        elif(bbox_depth_frame[i,j] < nearest_depth or bbox_depth_frame[i,j] > farest_depth):
+                            observed_pixels_amount-=1
+                        else:
+                            sum += bbox_depth_frame[i,j]
+
+            except Exception as e:
+                logger.error(e)
+
+            mean_depth = sum/observed_pixels_amount
+            return mean_depth
+
+    def center_point_depth_median(self, bbox_depth_frame, center_point_distance, max_length_of_object):
+
+        height = bbox_depth_frame.shape[0]
+        width = bbox_depth_frame.shape[1]
+
+        observed_pixels_amount = height*width
+        
+        median_depth = 0
+        depth_array = []
+        
+        nearest_depth = center_point_distance - max_length_of_object
+        farest_depth = center_point_distance + max_length_of_object
+
+        try:
+            for i in range(height):
+                for j in range(width):
+                    # ignore pixels with 0 as depth as it's incorrect data
+                    if(bbox_depth_frame[i,j] == 0):
+                        observed_pixels_amount-=1
+                    elif(bbox_depth_frame[i,j] < nearest_depth or bbox_depth_frame[i,j] > farest_depth):
+                        observed_pixels_amount-=1
+                    else:
+                        depth_array.append(bbox_depth_frame[i,j])
+
+        except Exception as e:
+            logger.error(e)
+
+        sorted(depth_array)
+        if observed_pixels_amount % 2 != 0:
+            median_depth = float(depth_array[int(observed_pixels_amount/2)])
+        else:
+            median_depth = float((depth_array[int((observed_pixels_amount-1)/2)] + depth_array[int(observed_pixels_amount/2)])/2.0)
+        
+        return median_depth
+
+    def mean_depth(bbox_depth_frame):
+
+        height = bbox_depth_frame.shape[0]
+        width = bbox_depth_frame.shape[1]
+
+        observed_pixels_amount = height*width
+        
+        sum = 0
+        
+        try:
+            for i in range(height):
+                for j in range(width):
+                    # ignore pixels with 0 as depth as it's incorrect data
+                    if(bbox_depth_frame[i,j] == 0):
+                        observed_pixels_amount-=1
+                    else:
+                        sum += bbox_depth_frame[i,j]
+
+        except Exception as e:
+            logger.error(e)
+
+        mean_depth = sum/observed_pixels_amount
+        return mean_depth
+
+    def median_depth(bbox_depth_frame):
+
+        height = bbox_depth_frame.shape[0]
+        width = bbox_depth_frame.shape[1]
+
+        observed_pixels_amount = height*width
+        median_depth = 0
+        depth_array = []
+        
+        try:
+            for i in range(height):
+                for j in range(width):
+                    # ignore pixels with 0 as depth as it's incorrect data
+                    if(bbox_depth_frame[i,j] == 0):
+                        observed_pixels_amount -= 1
+                    else:
+                        depth_array.append(bbox_depth_frame[i,j])
+
+        except Exception as e:
+            logger.error(e)
+
+        sorted(depth_array)
+        if observed_pixels_amount % 2 != 0:
+            median_depth = float(depth_array[int(observed_pixels_amount/2)])
+        else:
+            median_depth = float((depth_array[int((observed_pixels_amount-1)/2)] + depth_array[int(observed_pixels_amount/2)])/2.0)
+        
+        return median_depth
+
     def convert_depth_to_phys_coord_using_realsense(self, x, y, depth):
         result = rs.rs2_deproject_pixel_to_point(self._intrinsics, [x, y], depth)
-        #result[0]: right, result[1]: down, result[2]: forward
         return round(result[2]), round(-result[0]), round(-result[1])
 
     def tf(self, pose, frame):
