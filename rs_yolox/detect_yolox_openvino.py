@@ -1,151 +1,122 @@
-#!/usr/bin/env python3
-# -*- coding:utf-8 -*-
-# Copyright (c) Megvii, Inc. and its affiliates.
+from pathlib import Path
 
-# ROS2 rclpy -- Ar-Ray-code 2021
-import os
-import sys
-import rclpy
+import openvino.runtime as ov
+from openvino.preprocess import PrePostProcessor
+from openvino.preprocess import ColorFormat
+from openvino.runtime import Layout, Type
 
-import cv2
 import numpy as np
-import copy
+import cv2
 
-from openvino.inference_engine import IECore
-
-from yolox.data.data_augment import preproc as preprocess
-from yolox.data.datasets import COCO_CLASSES
-from yolox.utils import multiclass_nms, demo_postprocess, vis
-
-from ament_index_python import get_package_share_directory
-utils_dir = os.path.join(get_package_share_directory('rs_yolox'), 'utils')
-sys.path.append(utils_dir)
-from utils import yolox_py
-
-# ROS2 =====================================
 import rclpy
 from rclpy.node import Node
-
-from std_msgs.msg import Header
+from ament_index_python import get_package_share_directory
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
+rs_yolox_dir = get_package_share_directory('rs_yolox')
+import yaml
 
-from rclpy.qos import qos_profile_sensor_data
+SCORE_THRESHOLD = 0.2
+NMS_THRESHOLD = 0.4
+CONFIDENCE_THRESHOLD = 0.4
 
-from bboxes_ex_msgs.msg import BoundingBoxes
-from bboxes_ex_msgs.msg import BoundingBox
 
-# from darkself.net_ros_msgs.msg import BoundingBoxes
-# from darkself.net_ros_msgs.msg import BoundingBox
+def resize_and_pad(image, new_shape):
+    old_size = image.shape[:2] 
+    ratio = float(new_shape[-1]/max(old_size))#fix to accept also rectangular images
+    new_size = tuple([int(x*ratio) for x in old_size])
 
-class yolox_ros(yolox_py):
+    image = cv2.resize(image, (new_size[1], new_size[0]))
+    
+    delta_w = new_shape[1] - new_size[1]
+    delta_h = new_shape[0] - new_size[0]
+    
+    color = [100, 100, 100]
+    new_im = cv2.copyMakeBorder(image, 0, delta_h, 0, delta_w, cv2.BORDER_CONSTANT, value=color)
+    
+    return new_im
+
+
+class Detector(Node):
     def __init__(self) -> None:
-
-        # ROS2 init
-        super().__init__('yolox_ros', load_params=True)
-
-        self.setting_yolox_exp()
-
-        if (self.imshow_isshow):
-            cv2.namedWindow("YOLOX")
-        
+        super().__init__('YOLOV5')
         self.bridge = CvBridge()
-        
-        self.pub = self.create_publisher(BoundingBoxes,"bounding_boxes", 10)
-        self.sub = self.create_subscription(Image,"image_raw",self.imageflow_callback, self.qos_image_sub)
 
-    def setting_yolox_exp(self) -> None:
-        print('Creating Inference Engine')
-        ie = IECore()
-        print(f'Reading the self.network: {self.model_path}')
-        # (.xml and .bin files) or (.onnx file)
+        core = ov.Core()
+        model = core.read_model(str(Path(rs_yolox_dir + "/weights/yolov5s/yolov5s.xml")))
+        with open(str(Path(rs_yolox_dir + "/weights/yolov5s/yolov5s.yaml")), 'r') as stream:
+            self.classes = yaml.safe_load(stream)['names']
 
-        self.net = ie.read_network(model=self.model_path)
-        print('Configuring input and output blobs')
-        # Get names of input and output blobs
-        self.input_blob = next(iter(self.net.input_info))
-        self.out_blob = next(iter(self.net.outputs))
+        ppp = PrePostProcessor(model)
+        ppp.input().tensor().set_element_type(Type.u8).set_layout(Layout("NHWC")).set_color_format(ColorFormat.BGR)
+        ppp.input().preprocess().convert_element_type(Type.f32).convert_color(ColorFormat.RGB).scale([255., 255., 255.])
+        ppp.input().model().set_layout(Layout("NCHW"))
+        ppp.output().tensor().set_element_type(Type.f32)
+        model = ppp.build()
+        self.compiled_model = core.compile_model(model, "CPU")
 
-        # Set input and output precision manually
-        self.net.input_info[self.input_blob].precision = 'FP32'
-        self.net.outputs[self.out_blob].precision = 'FP16'
-
-        print('Loading the model to the plugin')
-        self.exec_net = ie.load_network(network=self.net, device_name=self.device)
+        self.sub = self.create_subscription(Image,"image_raw",self.imageflow_callback, 1)
+        cv2.namedWindow("YOLOV5s")
 
     def imageflow_callback(self,msg:Image) -> None:
-        try:
-            # fps start
-            start_time = cv2.getTickCount()
-            bboxes = BoundingBoxes()
-            origin_img = self.bridge.imgmsg_to_cv2(msg,"bgr8")
-            # deep copy
-            nodetect_image = copy.deepcopy(origin_img)
+        img = self.bridge.imgmsg_to_cv2(msg,"bgr8")
+        img_resized = resize_and_pad(img, (640, 640))
 
-            # origin_img = img_rgb
-            _, _, h, w = self.net.input_info[self.input_blob].input_data.shape
-            image, ratio = preprocess(origin_img, (h, w))
+        input_tensor = np.expand_dims(img_resized, 0)
+        infer_request = self.compiled_model.create_infer_request()
+        infer_request.infer({0: input_tensor})
+        output = infer_request.get_output_tensor()
+        detections = output.data[0]
 
-            res = self.exec_net.infer(inputs={self.input_blob: image})
-            res = res[self.out_blob]
+        boxes = []
+        class_ids = []
+        confidences = []
+        for prediction in detections:
+            confidence = prediction[4].item()
+            if confidence >= CONFIDENCE_THRESHOLD:
+                classes_scores = prediction[5:]
+                _, _, _, max_indx = cv2.minMaxLoc(classes_scores)
+                class_id = max_indx[1]
+                if (classes_scores[class_id] > .25):
+                    confidences.append(confidence)
+                    class_ids.append(class_id)
+                    x, y, w, h = prediction[0].item(), prediction[1].item(), prediction[2].item(), prediction[3].item()
+                    xmin = x - (w / 2)
+                    ymin = y - (h / 2)
+                    box = np.array([xmin, ymin, w, h])
+                    boxes.append(box)
 
-            # Predictions is result
-            predictions = demo_postprocess(res, (h, w), p6=False)[0]
+        indexes = cv2.dnn.NMSBoxes(boxes, confidences, SCORE_THRESHOLD, NMS_THRESHOLD)
 
-            boxes = predictions[:, :4]
-            scores = predictions[:, 4, None] * predictions[:, 5:]
-            # print(scores)
+        detections = []
+        for i in indexes:
+            j = i.item()
+            detections.append({"class_index": class_ids[j], "confidence": confidences[j], "box": boxes[j]})
 
-            boxes_xyxy = np.ones_like(boxes)
-            boxes_xyxy[:, 0] = boxes[:, 0] - boxes[:, 2]/2.
-            boxes_xyxy[:, 1] = boxes[:, 1] - boxes[:, 3]/2.
-            boxes_xyxy[:, 2] = boxes[:, 0] + boxes[:, 2]/2.
-            boxes_xyxy[:, 3] = boxes[:, 1] + boxes[:, 3]/2.
-            boxes_xyxy /= ratio
-            dets = multiclass_nms(boxes_xyxy, scores, nms_thr=0.45, score_thr=0.1)
+        for detection in detections:
+            box = detection["box"]
+            classId = detection["class_index"]
+            confidence = detection["confidence"]
+            print( f"Bbox {i} Class: {classId} Confidence: {confidence} Scaled coords: [ cx: {(box[0] + (box[2] / 2)) / img.shape[1]}, cy: {(box[1] + (box[3] / 2)) / img.shape[0]}, w: {box[2]/ img.shape[1]}, h: {box[3] / img.shape[0]} ]" )
+            xmax = box[0] + box[2]
+            ymax = box[1] + box[3]
+            img = cv2.rectangle(img, (int(box[0]), int(box[1])), (int(xmax), int(ymax)), (0, 255, 0), 3)
+            img = cv2.rectangle(img, (int(box[0]), int(box[1]) - 20), (int(xmax), int(box[1])), (0, 255, 0), cv2.FILLED)
+            img = cv2.putText(img, str(self.classes[classId]), (int(box[0]), int(box[1]) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
 
-            # print(dets)
-            if dets is not None:
-                final_boxes = dets[:, :4]
-                final_scores, final_cls_inds = dets[:, 4], dets[:, 5]
-                origin_img = vis(origin_img, final_boxes, final_scores, final_cls_inds,
-                                 conf=self.conf, class_names=COCO_CLASSES)
-                
-                # ==============================================================
-            end_time = cv2.getTickCount()
-            time_took = (end_time - start_time) / cv2.getTickFrequency()
-                
-            # rclpy log FPS
-            self.get_logger().info(f'FPS: {1 / time_took}')
-            
-            try:
-                bboxes = self.yolox2bboxes_msgs(dets[:, :4], final_scores, final_cls_inds, COCO_CLASSES, msg.header,  origin_img)
-                if (self.imshow_isshow):
-                    cv2.imshow("YOLOX",origin_img)
-                    cv2.waitKey(1)
-                
-            except:
-                if (self.imshow_isshow):
-                    cv2.imshow("YOLOX",origin_img)
-                    cv2.waitKey(1)
-
-            self.pub.publish(bboxes)
-
-        except Exception as e:
-            self.get_logger().info(f'Error: {e}')
-            pass
+        cv2.imshow("YOLOV5s",img)
+        cv2.waitKey(1)
 
 def main(args = None):
     rclpy.init(args=args)
-    ros_class = yolox_ros()
+    ros_class = Detector()
 
     try:
         rclpy.spin(ros_class)
     except KeyboardInterrupt:
         pass
-    finally:
-        ros_class.destroy_node()
-        rclpy.shutdown()
-    
+    ros_class.destroy_node()
+    rclpy.shutdown()
+
 if __name__ == "__main__":
     main()

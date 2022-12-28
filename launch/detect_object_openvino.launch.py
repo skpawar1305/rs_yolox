@@ -2,11 +2,8 @@ import launch
 import launch_ros.actions
 from launch.actions import DeclareLaunchArgument
 from ament_index_python.packages import get_package_share_directory
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
-from urllib.request import urlretrieve
-import os
 
 def generate_launch_description():
     rs_yolox_dir = get_package_share_directory('rs_yolox')
@@ -30,7 +27,7 @@ def generate_launch_description():
         package="rs_yolox", executable="detect_yolox_openvino",output="screen",
         parameters=[
             {"device" : 'CPU'},
-            {"model_path" : rs_yolox_dir+"/weights/yolox_nano.onnx"},
+            {"model_path" : rs_yolox_dir+"/weights/yolov5s.onnx"},
             {"conf" : 0.3},
         ],
     )
