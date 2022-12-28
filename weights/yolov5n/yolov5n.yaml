@@ -1,0 +1,15 @@
+stride: 32
+names:
+  0: corrosive
+  1: dangerous
+  2: explosive
+  3: flammable
+  4: flammable-solid
+  5: infectious-substance
+  6: inhalation-hazard
+  7: non-flammable-gas
+  8: organic-peroxide
+  9: oxygen
+  10: poison
+  11: radioactive
+  12: spontaneously-combustible

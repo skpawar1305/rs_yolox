@@ -15,6 +15,7 @@ setup(
         (os.path.join('share', package_name, 'resource'), glob('resource/*')),
         (os.path.join('share', package_name, 'weights'), glob('weights/*.*')),
         (os.path.join('share', package_name, 'weights', 'yolov5s'), glob('weights/yolov5s/*')),
+        (os.path.join('share', package_name, 'weights', 'yolov5n'), glob('weights/yolov5n/*')),
         (os.path.join('share', package_name, 'exps'), glob('exps/*')),
         (os.path.join('share', package_name, 'utils'), glob('utils/*')),
         (os.path.join('share', package_name), glob('./launch/*.launch.py')),

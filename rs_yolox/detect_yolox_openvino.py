@@ -43,8 +43,8 @@ class Detector(Node):
         self.bridge = CvBridge()
 
         core = ov.Core()
-        model = core.read_model(str(Path(rs_yolox_dir + "/weights/yolov5s/yolov5s.xml")))
-        with open(str(Path(rs_yolox_dir + "/weights/yolov5s/yolov5s.yaml")), 'r') as stream:
+        model = core.read_model(str(Path(rs_yolox_dir + "/weights/yolov5n/yolov5n.xml")))
+        with open(str(Path(rs_yolox_dir + "/weights/yolov5n/yolov5n.yaml")), 'r') as stream:
             self.classes = yaml.safe_load(stream)['names']
 
         ppp = PrePostProcessor(model)
